@@ -75,7 +75,7 @@ def Linear(
     return reduce(lambda a,b: a+b, terms)
 
 def rectify(x):
-    """Compute the ReLU nonlinearity: max(0, x)"""
+    """ReLU nonlinearity: max(0, x)"""
     return (x + abs(x)) / swft.floatX(2.0)
 
 def Embedding(name, n_symbols, output_dim, indices):
@@ -95,6 +95,12 @@ def Embedding(name, n_symbols, output_dim, indices):
     return vectors[indices.flatten()].reshape(output_shape)
 
 def BatchNormalize(name, input_dim, inputs, stepwise=False):
+    """
+    Batch normalization. By default, normalizes across all but the last axis.
+    Set `stepwise` to true if you're batch-norming an RNN and want to normalize
+    each timestep separately (e.g. for a language model, where you can't let
+    information from step `t+1` leak into step `t`).
+    """
     if stepwise:
         means = inputs.mean(axis=1, keepdims=True)
         variances = inputs.var(axis=1, keepdims=True)
@@ -116,29 +122,16 @@ def BatchNormalize(name, input_dim, inputs, stepwise=False):
 
     return (inputs - means) * (gamma / stdevs) + beta
 
-def Dropout(p_keep, inputs):
+def Dropout(p_drop, inputs):
+    """
+    Drop each input randomly with probability `p_drop`, and scale the remaining
+    ones to preserve the overall variance. This op doesn't yet support a
+    test-time mode (where all inputs are kept).
+    """
     srng = RandomStreams(seed=234)
-    scaled_inputs = inputs / swft.floatX(p_keep)
+    scaled_inputs = inputs / swft.floatX(1-p_drop)
     return scaled_inputs * srng.binomial(
         inputs.shape, 
-        p=swft.floatX(p_keep),
+        p=swft.floatX(1-p_drop),
        dtype=theano.config.floatX
     )
-
-def DenseLayer(name, n_in, n_out, nonlinearity, inputs, batchnorm=False, dropout=False):
-    if dropout:
-        inputs = Dropout(0.5, inputs)
-    output = Linear(name+'.Linear', n_in, n_out, inputs)
-    if batchnorm:
-        output = BatchNormalize(name+'.BN', n_out, output)
-    if nonlinearity == 'relu':
-        output = rectify(output)
-    elif nonlinearity == 'tanh':
-        output = T.tanh(output)
-    elif nonlinearity == 'sigmoid':
-        output = T.nnet.sigmoid(output)
-    elif nonlinearity == 'none':
-        pass
-    else:
-        raise Exception('Invalid nonlinearity!')
-    return output
